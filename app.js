@@ -18,7 +18,7 @@ const rawOrigins = [
   .filter(Boolean)
   .map((url) => url.trim());
 
-const allowedOrigins = Array.from(new Set(rawOrigins));
+export const allowedOrigins = Array.from(new Set(rawOrigins));
 
 app.use(
   cors({

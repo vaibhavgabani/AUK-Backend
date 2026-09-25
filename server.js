@@ -1,6 +1,6 @@
 import './utils/tracer.js'; // Must be top import for Datadog APM initialization
 import { config } from './config/env.js';
-import app from './app.js';
+import app, { allowedOrigins } from './app.js';
 import logger from './utils/logger.js';
 import { getPool, testDbConnection } from './db/index.js';
 
@@ -13,9 +13,14 @@ const server = app.listen(PORT, async () => {
       environment: config.nodeEnv,
       service: config.serviceName,
       version: config.appVersion,
+      allowedOrigins,
     },
     `Express Backend Server listening on port ${PORT}`
   );
+
+  console.log(`🚀 [Server]: Listening on port ${PORT} (${config.nodeEnv})`);
+  console.log(`🌐 [CORS]: Backend configured to accept CORS from origins: ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'All origins allowed in development'}`);
+  console.log(`🔐 [Admin Setup]: Admin credentials read dynamically from environment (.env) -> SEED_ADMIN_EMAIL: "${process.env.SEED_ADMIN_EMAIL || 'admin@anshil.co.uk (fallback)'}"`);
 
   try {
     const isConnected = await testDbConnection();
