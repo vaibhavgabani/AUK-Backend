@@ -3,6 +3,7 @@ import { config } from './config/env.js';
 import app, { allowedOrigins } from './app.js';
 import logger from './utils/logger.js';
 import { getPool, testDbConnection } from './db/index.js';
+import { seedDatabase } from './db/seed.js';
 
 const PORT = config.port;
 
@@ -20,13 +21,25 @@ const server = app.listen(PORT, async () => {
 
   console.log(`🚀 [Server]: Listening on port ${PORT} (${config.nodeEnv})`);
   console.log(`🌐 [CORS]: Backend configured to accept CORS from origins: ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'All origins allowed in development'}`);
-  console.log(`🔐 [Admin Setup]: Admin credentials read dynamically from environment (.env) -> SEED_ADMIN_EMAIL: "${process.env.SEED_ADMIN_EMAIL || 'admin@anshil.co.uk (fallback)'}"`);
 
   try {
     const isConnected = await testDbConnection();
     if (isConnected) {
       logger.info('Database connected successfully');
       console.log('✅ [Database]: Connected successfully');
+
+      // Check if admin exists in DB; seed only if missing on first startup
+      try {
+        const seedResult = await seedDatabase();
+        if (seedResult && seedResult.created) {
+          console.log(`🔐 [Admin Setup]: Initial admin account created from .env (${seedResult.email})`);
+        } else if (seedResult) {
+          console.log(`ℹ️ [Admin Check]: Admin user already exists in DB (${seedResult.email}). Skipping initial seed.`);
+        }
+      } catch (seedErr) {
+        logger.error({ err: seedErr }, 'Error during automatic admin seed check on startup');
+        console.error('⚠️ [Admin Check]: Auto-seed check error:', seedErr.message);
+      }
     } else {
       logger.warn('Database connection status check failed');
       console.log('⚠️ [Database]: Connection status check returned false');
