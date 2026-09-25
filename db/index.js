@@ -15,6 +15,9 @@ export function getPool() {
       throw new Error('DATABASE_URL environment variable is not defined.');
     }
     poolInstance = new Pool({ connectionString });
+    poolInstance.on('error', (err) => {
+      console.error('❌ [Database]: Unexpected error on idle client:', err.message || err);
+    });
     instance = drizzle(poolInstance, { schema });
   }
   return poolInstance;

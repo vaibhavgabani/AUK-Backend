@@ -2,11 +2,11 @@ import './utils/tracer.js'; // Must be top import for Datadog APM initialization
 import { config } from './config/env.js';
 import app from './app.js';
 import logger from './utils/logger.js';
-import { getPool } from './db/index.js';
+import { getPool, testDbConnection } from './db/index.js';
 
 const PORT = config.port;
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   logger.info(
     {
       port: PORT,
@@ -16,6 +16,20 @@ const server = app.listen(PORT, () => {
     },
     `Express Backend Server listening on port ${PORT}`
   );
+
+  try {
+    const isConnected = await testDbConnection();
+    if (isConnected) {
+      logger.info('Database connected successfully');
+      console.log('✅ [Database]: Connected successfully');
+    } else {
+      logger.warn('Database connection status check failed');
+      console.log('⚠️ [Database]: Connection status check returned false');
+    }
+  } catch (error) {
+    logger.error({ err: error }, 'Database connection error during startup');
+    console.error('❌ [Database]: Connection error:', error.message);
+  }
 });
 
 // Graceful Shutdown & Unhandled Exception Management
