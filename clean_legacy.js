@@ -1,0 +1,1 @@
+// Clean legacy script placeholder
