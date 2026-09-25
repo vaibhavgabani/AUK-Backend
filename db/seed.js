@@ -10,15 +10,6 @@ dotenv.config();
 const BCRYPT_SALT_ROUNDS = 12;
 
 export async function seedDatabase() {
-  const adminEmail = process.env.SEED_ADMIN_EMAIL;
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
-  const adminName = process.env.SEED_ADMIN_NAME || 'System Administrator';
-
-  if (!adminEmail || !adminPassword) {
-    logger.warn('SEED_ADMIN_EMAIL or SEED_ADMIN_PASSWORD environment variables not set. Skipping admin seed.');
-    return { created: false, skipped: true, reason: 'ENV variables missing' };
-  }
-
   // 1. Ensure system roles exist
   const roleNames = ['admin', 'manager'];
   const roleMap = {};
@@ -32,48 +23,61 @@ export async function seedDatabase() {
     roleMap[name] = roleRecord.id;
   }
 
-  // 2. Check if Admin User already exists in DB
-  const normalizedEmail = adminEmail.toLowerCase().trim();
-  let [existingAdminUser] = await db
-    .select({ id: users.id, email: users.email })
-    .from(users)
-    .where(eq(users.email, normalizedEmail));
+  // 2. Define list of admins to seed
+  const adminsToSeed = [
+    {
+      email: process.env.SEED_ADMIN_EMAIL || 'Anshilnayani51@gmail.com',
+      password: process.env.SEED_ADMIN_PASSWORD || 'AdminSecret123!',
+      name: process.env.SEED_ADMIN_NAME || 'System Administrator',
+    },
+    {
+      email: process.env.SEED_ADMIN_EMAIL_2 || 'gabanivaibhav10@gmail.com',
+      password: process.env.SEED_ADMIN_PASSWORD_2 || 'Smarty@3322',
+      name: process.env.SEED_ADMIN_NAME_2 || 'Vaibhav Gabani',
+    },
+  ];
 
-  if (!existingAdminUser && roleMap['admin']) {
-    const [anyAdminUser] = await db
+  const results = [];
+
+  for (const admin of adminsToSeed) {
+    if (!admin.email || !admin.password) continue;
+
+    const normalizedEmail = admin.email.toLowerCase().trim();
+
+    // Check if this specific admin user already exists in DB
+    const [existingUser] = await db
       .select({ id: users.id, email: users.email })
       .from(users)
-      .where(eq(users.roleId, roleMap['admin']));
-    if (anyAdminUser) {
-      existingAdminUser = anyAdminUser;
+      .where(eq(users.email, normalizedEmail));
+
+    if (!existingUser) {
+      const passwordHash = await bcrypt.hash(admin.password, BCRYPT_SALT_ROUNDS);
+
+      const [adminUser] = await db
+        .insert(users)
+        .values({
+          roleId: roleMap['admin'],
+          email: normalizedEmail,
+          passwordHash,
+          status: 'active',
+        })
+        .returning();
+
+      await db.insert(adminProfiles).values({
+        userId: adminUser.id,
+        name: admin.name,
+      });
+
+      logger.info({ userId: adminUser.id, email: normalizedEmail }, `Admin user created successfully from ENV: ${normalizedEmail}`);
+      results.push({ created: true, email: normalizedEmail });
+    } else {
+      logger.info({ userId: existingUser.id, email: existingUser.email }, `Admin user already exists in DB: ${existingUser.email}`);
+      results.push({ created: false, email: existingUser.email });
     }
   }
 
-  // 3. Seed Admin User ONLY if not already present in DB
-  if (!existingAdminUser) {
-    const passwordHash = await bcrypt.hash(adminPassword, BCRYPT_SALT_ROUNDS);
-
-    const [adminUser] = await db
-      .insert(users)
-      .values({
-        roleId: roleMap['admin'],
-        email: normalizedEmail,
-        passwordHash,
-        status: 'active',
-      })
-      .returning();
-
-    await db.insert(adminProfiles).values({
-      userId: adminUser.id,
-      name: adminName,
-    });
-
-    logger.info({ userId: adminUser.id, email: normalizedEmail }, 'Admin user created successfully from ENV.');
-    return { created: true, email: normalizedEmail };
-  } else {
-    logger.info({ userId: existingAdminUser.id, email: existingAdminUser.email }, 'Admin user already exists in DB.');
-    return { created: false, email: existingAdminUser.email };
-  }
+  const anyCreated = results.some((r) => r.created);
+  return { created: anyCreated, results };
 }
 
 // Direct runner

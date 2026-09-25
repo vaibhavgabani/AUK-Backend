@@ -81,10 +81,10 @@ export async function requestPasswordReset(email) {
     const isAdminUser = userRecord.roleId === 1 || (envAdminEmail && normalizedEmail === envAdminEmail.toLowerCase());
 
     // Send email ONLY for Admin accounts as requested ("note send email only at admin time not for manager")
-    if (isAdminUser && envAdminEmail) {
+    if (isAdminUser) {
       try {
         await sendOtpEmail({
-          to: envAdminEmail,
+          to: normalizedEmail,
           otp: rawOtp,
           expiresMinutes: 10,
         });

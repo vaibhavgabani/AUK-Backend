@@ -28,13 +28,17 @@ const server = app.listen(PORT, async () => {
       logger.info('Database connected successfully');
       console.log('✅ [Database]: Connected successfully');
 
-      // Check if admin exists in DB; seed only if missing on first startup
+      // Check if admins exist in DB; seed only if missing on startup
       try {
         const seedResult = await seedDatabase();
-        if (seedResult && seedResult.created) {
-          console.log(`🔐 [Admin Setup]: Initial admin account created from .env (${seedResult.email})`);
-        } else if (seedResult) {
-          console.log(`ℹ️ [Admin Check]: Admin user already exists in DB (${seedResult.email}). Skipping initial seed.`);
+        if (seedResult && seedResult.results) {
+          seedResult.results.forEach((r) => {
+            if (r.created) {
+              console.log(`🔐 [Admin Setup]: Admin account created from .env (${r.email})`);
+            } else {
+              console.log(`ℹ️ [Admin Check]: Admin user already exists in DB (${r.email}).`);
+            }
+          });
         }
       } catch (seedErr) {
         logger.error({ err: seedErr }, 'Error during automatic admin seed check on startup');
