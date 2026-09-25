@@ -51,6 +51,11 @@ app.use(requestLogger);
 app.use(express.json());
 app.use(cookieParser());
 
+// Root route
+app.get('/', (req, res) => {
+  res.send('<h1>Hello</h1>');
+});
+
 // Central API route mounting
 app.use('/api', routes);
 
