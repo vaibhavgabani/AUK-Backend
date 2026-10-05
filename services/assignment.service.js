@@ -5,20 +5,31 @@ import { getManagerProfileIdByUserId } from './manager.service.js';
 import { calculateHours } from '../utils/hours.js';
 import { createAuditLog } from '../utils/audit.js';
 
-export async function fetchEventAssignments(userId, eventId) {
-  const managerId = await getManagerProfileIdByUserId(userId);
-  if (!managerId) {
-    throw new Error('MANAGER_NOT_FOUND');
-  }
+async function checkEventAccess(user, eventId) {
+  const userId = typeof user === 'object' ? user.id : user;
+  const userRole = typeof user === 'object' ? user.role : 'manager';
 
-  const [evt] = await db
-    .select({ id: events.id })
-    .from(events)
-    .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
-
-  if (!evt) {
-    throw new Error('EVENT_NOT_FOUND');
+  if (userRole === 'admin') {
+    const [evt] = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.id, eventId), isNull(events.deletedAt)));
+    if (!evt) throw new Error('EVENT_NOT_FOUND');
+    return evt;
+  } else {
+    const managerId = await getManagerProfileIdByUserId(userId);
+    if (!managerId) throw new Error('MANAGER_NOT_FOUND');
+    const [evt] = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+    if (!evt) throw new Error('EVENT_NOT_FOUND');
+    return evt;
   }
+}
+
+export async function fetchEventAssignments(user, eventId) {
+  await checkEventAccess(user, eventId);
 
   const assignments = await db
     .select({
@@ -44,20 +55,9 @@ export async function fetchEventAssignments(userId, eventId) {
   }));
 }
 
-export async function createGigAssignment(userId, eventId, { gigId, gigIds, startDatetime, endDatetime }) {
-  const managerId = await getManagerProfileIdByUserId(userId);
-  if (!managerId) {
-    throw new Error('MANAGER_NOT_FOUND');
-  }
-
-  const [evt] = await db
-    .select()
-    .from(events)
-    .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
-
-  if (!evt) {
-    throw new Error('EVENT_NOT_FOUND');
-  }
+export async function createGigAssignment(user, eventId, { gigId, gigIds, startDatetime, endDatetime }) {
+  const userId = typeof user === 'object' ? user.id : user;
+  const evt = await checkEventAccess(user, eventId);
 
   const idsToAssign = Array.isArray(gigIds) && gigIds.length > 0 ? gigIds : (gigId ? [gigId] : []);
   if (idsToAssign.length === 0) {
@@ -132,20 +132,9 @@ export async function createGigAssignment(userId, eventId, { gigId, gigIds, star
   return idsToAssign.length === 1 && !gigIds ? createdAssignments[0] : createdAssignments;
 }
 
-export async function updateGigAssignmentDetails(userId, eventId, assignmentId, data) {
-  const managerId = await getManagerProfileIdByUserId(userId);
-  if (!managerId) {
-    throw new Error('MANAGER_NOT_FOUND');
-  }
-
-  const [evt] = await db
-    .select({ id: events.id })
-    .from(events)
-    .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
-
-  if (!evt) {
-    throw new Error('EVENT_NOT_FOUND');
-  }
+export async function updateGigAssignmentDetails(user, eventId, assignmentId, data) {
+  const userId = typeof user === 'object' ? user.id : user;
+  await checkEventAccess(user, eventId);
 
   const [existingAssgn] = await db
     .select()
@@ -205,20 +194,9 @@ export async function updateGigAssignmentDetails(userId, eventId, assignmentId, 
   return { ...updatedAssgn, totalHours };
 }
 
-export async function deleteGigAssignmentRecord(userId, eventId, assignmentId) {
-  const managerId = await getManagerProfileIdByUserId(userId);
-  if (!managerId) {
-    throw new Error('MANAGER_NOT_FOUND');
-  }
-
-  const [evt] = await db
-    .select({ id: events.id })
-    .from(events)
-    .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
-
-  if (!evt) {
-    throw new Error('EVENT_NOT_FOUND');
-  }
+export async function deleteGigAssignmentRecord(user, eventId, assignmentId) {
+  const userId = typeof user === 'object' ? user.id : user;
+  await checkEventAccess(user, eventId);
 
   const [existingAssgn] = await db
     .select()

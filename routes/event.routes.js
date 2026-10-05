@@ -37,14 +37,15 @@ router.delete('/:id/expenses/:expenseId', requireRole('admin', 'manager'), delet
 // Invoice sub-resource endpoint
 router.get('/:id/invoice', requireRole('admin', 'manager'), getInvoice);
 
-// Manager-only mutation & assignment endpoints
-router.post('/', requireRole('manager'), createEvent);
-router.patch('/:id', requireRole('manager'), updateEvent);
-router.delete('/:id', requireRole('manager'), deleteEvent);
+// Mutation & assignment endpoints for Admin and Manager
+router.post('/', requireRole('admin', 'manager'), createEvent);
+router.put('/:id', requireRole('admin', 'manager'), updateEvent);
+router.patch('/:id', requireRole('admin', 'manager'), updateEvent);
+router.delete('/:id', requireRole('admin', 'manager'), deleteEvent);
 
-router.get('/:id/gigs', requireRole('manager'), getEventGigs);
-router.post('/:id/gigs', requireRole('manager'), addGigToEvent);
-router.patch('/:id/gigs/:assignmentId', requireRole('manager'), updateGigAssignment);
-router.delete('/:id/gigs/:assignmentId', requireRole('manager'), deleteGigAssignment);
+router.get('/:id/gigs', requireRole('admin', 'manager'), getEventGigs);
+router.post('/:id/gigs', requireRole('admin', 'manager'), addGigToEvent);
+router.patch('/:id/gigs/:assignmentId', requireRole('admin', 'manager'), updateGigAssignment);
+router.delete('/:id/gigs/:assignmentId', requireRole('admin', 'manager'), deleteGigAssignment);
 
 export default router;

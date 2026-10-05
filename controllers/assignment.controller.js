@@ -14,7 +14,7 @@ export async function getEventGigs(req, res, next) {
   }
 
   try {
-    const data = await fetchEventAssignments(req.user.id, eventId);
+    const data = await fetchEventAssignments(req.user, eventId);
     return sendSuccess(res, { data });
   } catch (err) {
     if (err.message === 'EVENT_NOT_FOUND') {
@@ -40,7 +40,7 @@ export async function addGigToEvent(req, res, next) {
   }
 
   try {
-    const data = await createGigAssignment(req.user.id, eventId, validation.data);
+    const data = await createGigAssignment(req.user, eventId, validation.data);
     return sendSuccess(res, { data }, 201);
   } catch (err) {
     if (err.message === 'EVENT_NOT_FOUND') {
@@ -80,7 +80,7 @@ export async function updateGigAssignment(req, res, next) {
   }
 
   try {
-    const data = await updateGigAssignmentDetails(req.user.id, eventId, assignmentId, validation.data);
+    const data = await updateGigAssignmentDetails(req.user, eventId, assignmentId, validation.data);
     return sendSuccess(res, { data });
   } catch (err) {
     if (err.message === 'EVENT_NOT_FOUND' || err.message === 'ASSIGNMENT_NOT_FOUND') {
@@ -105,7 +105,7 @@ export async function deleteGigAssignment(req, res, next) {
   }
 
   try {
-    const result = await deleteGigAssignmentRecord(req.user.id, eventId, assignmentId);
+    const result = await deleteGigAssignmentRecord(req.user, eventId, assignmentId);
     return sendSuccess(res, result);
   } catch (err) {
     if (err.message === 'EVENT_NOT_FOUND' || err.message === 'ASSIGNMENT_NOT_FOUND') {
