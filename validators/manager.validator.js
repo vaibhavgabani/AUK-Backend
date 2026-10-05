@@ -16,3 +16,10 @@ export const updateManagerPasswordSchema = z.object({
     .min(6, 'Password must be at least 6 characters')
     .max(128),
 });
+
+export const updateManagerSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(255).optional(),
+  email: z.string().email('Invalid email format').max(255).optional(),
+  phone: z.string().max(30, 'Phone number must not exceed 30 characters').optional().nullable(),
+});
+

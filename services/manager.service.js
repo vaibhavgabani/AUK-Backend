@@ -130,3 +130,116 @@ export async function updateManagerPasswordByAdmin(managerProfileId, newPassword
 
   return { message: 'Manager password updated successfully' };
 }
+
+export async function updateManagerProfileByAdmin(managerProfileId, { name, email, phone }, adminUserId) {
+  const [profile] = await db
+    .select({
+      id: managerProfiles.id,
+      userId: managerProfiles.userId,
+      name: managerProfiles.name,
+      phone: managerProfiles.phone,
+    })
+    .from(managerProfiles)
+    .where(and(eq(managerProfiles.id, managerProfileId), isNull(managerProfiles.deletedAt)));
+
+  if (!profile) {
+    throw new Error('MANAGER_NOT_FOUND');
+  }
+
+  const [usr] = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(and(eq(users.id, profile.userId), isNull(users.deletedAt)));
+
+  if (!usr) {
+    throw new Error('MANAGER_NOT_FOUND');
+  }
+
+  if (email && email.toLowerCase().trim() !== usr.email) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const [existingEmail] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.email, normalizedEmail), isNull(users.deletedAt)));
+
+    if (existingEmail && existingEmail.id !== usr.id) {
+      throw new Error('EMAIL_EXISTS');
+    }
+  }
+
+  return await db.transaction(async (tx) => {
+    if (email) {
+      await tx
+        .update(users)
+        .set({ email: email.toLowerCase().trim(), updatedAt: new Date() })
+        .where(eq(users.id, usr.id));
+    }
+
+    const updateFields = {};
+    if (name !== undefined) updateFields.name = name.trim();
+    if (phone !== undefined) updateFields.phone = phone ? phone.trim() : null;
+    updateFields.updatedAt = new Date();
+
+    const [updatedProfile] = await tx
+      .update(managerProfiles)
+      .set(updateFields)
+      .where(eq(managerProfiles.id, managerProfileId))
+      .returning();
+
+    await createAuditLog({
+      userId: adminUserId,
+      action: 'update',
+      entityType: 'ManagerProfile',
+      entityId: managerProfileId,
+      oldValue: { name: profile.name, phone: profile.phone, email: usr.email },
+      newValue: { name: updatedProfile.name, phone: updatedProfile.phone, email: email || usr.email },
+      client: tx,
+    });
+
+    return {
+      id: updatedProfile.id,
+      userId: usr.id,
+      name: updatedProfile.name,
+      email: email ? email.toLowerCase().trim() : usr.email,
+      phone: updatedProfile.phone,
+    };
+  });
+}
+
+export async function deleteManagerAccountByAdmin(managerProfileId, adminUserId) {
+  const [profile] = await db
+    .select({ id: managerProfiles.id, userId: managerProfiles.userId, name: managerProfiles.name })
+    .from(managerProfiles)
+    .where(and(eq(managerProfiles.id, managerProfileId), isNull(managerProfiles.deletedAt)));
+
+  if (!profile) {
+    throw new Error('MANAGER_NOT_FOUND');
+  }
+
+  const now = new Date();
+
+  return await db.transaction(async (tx) => {
+    await tx
+      .update(managerProfiles)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(managerProfiles.id, managerProfileId));
+
+    await tx
+      .update(users)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(users.id, profile.userId));
+
+    await createAuditLog({
+      userId: adminUserId,
+      action: 'delete',
+      entityType: 'ManagerProfile',
+      entityId: managerProfileId,
+      oldValue: { id: profile.id, userId: profile.userId, name: profile.name },
+      newValue: { deletedAt: now },
+      client: tx,
+    });
+
+    return { message: 'Manager account deleted successfully' };
+  });
+}
+

@@ -86,7 +86,7 @@ export async function updateEvent(req, res, next) {
   }
 
   try {
-    const data = await updateEventDetails(req.user.id, eventId, validation.data);
+    const data = await updateEventDetails(req.user, eventId, validation.data);
     return sendSuccess(res, { data });
   } catch (err) {
     if (err.message === 'EVENT_NOT_FOUND') {
@@ -109,7 +109,7 @@ export async function deleteEvent(req, res, next) {
   }
 
   try {
-    const result = await softDeleteEvent(req.user.id, eventId);
+    const result = await softDeleteEvent(req.user, eventId);
     return sendSuccess(res, result);
   } catch (err) {
     if (err.message === 'EVENT_NOT_FOUND') {

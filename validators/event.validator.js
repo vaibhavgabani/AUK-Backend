@@ -86,3 +86,10 @@ export const createGigProfileSchema = z.object({
   email: z.string().trim().email('Invalid email address').or(z.literal('')).optional().nullable(),
   phone: z.string().trim().max(30, 'Phone number must not exceed 30 characters').optional().nullable(),
 });
+
+export const updateGigProfileSchema = z.object({
+  name: z.string().trim().min(1, 'Full name is required').max(255).optional(),
+  email: z.string().trim().email('Invalid email address').or(z.literal('')).optional().nullable(),
+  phone: z.string().trim().max(30, 'Phone number must not exceed 30 characters').optional().nullable(),
+});
+

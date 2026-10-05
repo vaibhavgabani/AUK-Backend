@@ -260,16 +260,29 @@ export async function fetchEventDetailsById(user, eventId) {
   };
 }
 
-export async function updateEventDetails(userId, eventId, data) {
-  const managerId = await getManagerProfileIdByUserId(userId);
-  if (!managerId) {
-    throw new Error('MANAGER_NOT_FOUND');
-  }
+export async function updateEventDetails(user, eventId, data) {
+  const userId = typeof user === 'object' ? user.id : user;
+  const userRole = typeof user === 'object' ? user.role : 'manager';
 
-  const [existingEvt] = await db
-    .select()
-    .from(events)
-    .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+  let existingEvt = null;
+
+  if (userRole === 'admin') {
+    const [evt] = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.id, eventId), isNull(events.deletedAt)));
+    existingEvt = evt;
+  } else {
+    const managerId = await getManagerProfileIdByUserId(userId);
+    if (!managerId) {
+      throw new Error('MANAGER_NOT_FOUND');
+    }
+    const [evt] = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+    existingEvt = evt;
+  }
 
   if (!existingEvt) {
     throw new Error('EVENT_NOT_FOUND');
@@ -319,16 +332,29 @@ export async function updateEventDetails(userId, eventId, data) {
   return { ...updatedEvt, status };
 }
 
-export async function softDeleteEvent(userId, eventId) {
-  const managerId = await getManagerProfileIdByUserId(userId);
-  if (!managerId) {
-    throw new Error('MANAGER_NOT_FOUND');
-  }
+export async function softDeleteEvent(user, eventId) {
+  const userId = typeof user === 'object' ? user.id : user;
+  const userRole = typeof user === 'object' ? user.role : 'manager';
 
-  const [existingEvt] = await db
-    .select()
-    .from(events)
-    .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+  let existingEvt = null;
+
+  if (userRole === 'admin') {
+    const [evt] = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.id, eventId), isNull(events.deletedAt)));
+    existingEvt = evt;
+  } else {
+    const managerId = await getManagerProfileIdByUserId(userId);
+    if (!managerId) {
+      throw new Error('MANAGER_NOT_FOUND');
+    }
+    const [evt] = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+    existingEvt = evt;
+  }
 
   if (!existingEvt) {
     throw new Error('EVENT_NOT_FOUND');

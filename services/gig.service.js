@@ -8,10 +8,7 @@ import { createAuditLog } from '../utils/audit.js';
 
 export async function fetchAllGigBookings({ status, from, to, managerId, place }) {
   const conditions = [
-    isNull(events.deletedAt),
     isNull(gigProfiles.deletedAt),
-    isNull(managerProfiles.deletedAt),
-    isNull(users.deletedAt),
   ];
 
   if (managerId) {
@@ -54,14 +51,14 @@ export async function fetchAllGigBookings({ status, from, to, managerId, place }
       actualStartDatetime: eventGigAssignments.actualStartDatetime,
       actualEndDatetime: eventGigAssignments.actualEndDatetime,
       status: eventGigAssignments.status,
-      createdByName: sql`COALESCE(${creatorManagerProfiles.name}, ${creatorAdminProfiles.name}, ${creatorUsers.email})`,
+      createdByName: sql`COALESCE(${creatorManagerProfiles.name}, ${creatorAdminProfiles.name}, ${creatorUsers.email}, 'Admin')`,
       createdOn: sql`COALESCE(${creatorAuditLogs.createdAt}, ${gigProfiles.createdAt})`,
     })
-    .from(eventGigAssignments)
-    .innerJoin(events, eq(eventGigAssignments.eventId, events.id))
-    .innerJoin(gigProfiles, eq(eventGigAssignments.gigId, gigProfiles.id))
-    .innerJoin(managerProfiles, eq(events.managerId, managerProfiles.id))
-    .innerJoin(users, eq(managerProfiles.userId, users.id))
+    .from(gigProfiles)
+    .leftJoin(eventGigAssignments, eq(eventGigAssignments.gigId, gigProfiles.id))
+    .leftJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
+    .leftJoin(managerProfiles, and(eq(events.managerId, managerProfiles.id), isNull(managerProfiles.deletedAt)))
+    .leftJoin(users, and(eq(managerProfiles.userId, users.id), isNull(users.deletedAt)))
     .leftJoin(
       creatorAuditLogs,
       and(
@@ -73,7 +70,8 @@ export async function fetchAllGigBookings({ status, from, to, managerId, place }
     .leftJoin(creatorUsers, eq(creatorAuditLogs.userId, creatorUsers.id))
     .leftJoin(creatorManagerProfiles, eq(creatorUsers.id, creatorManagerProfiles.userId))
     .leftJoin(creatorAdminProfiles, eq(creatorUsers.id, creatorAdminProfiles.userId))
-    .where(and(...conditions));
+    .where(and(...conditions))
+    .orderBy(gigProfiles.name);
 
   // Calculate total working hours for each staff member across all events
   const personHoursMap = {};
@@ -84,14 +82,14 @@ export async function fetchAllGigBookings({ status, from, to, managerId, place }
   });
 
   const processedBookings = rawBookings.map((bkg) => {
-    const computedEventStatus = getEventStatus(bkg.eventStartDatetime, bkg.eventEndDatetime);
+    const computedEventStatus = bkg.eventStartDatetime ? getEventStatus(bkg.eventStartDatetime, bkg.eventEndDatetime) : 'active';
     const hours = calculateHours(bkg.startDatetime, bkg.endDatetime);
     const key = bkg.gigId || bkg.gigName;
     const personTotal = personHoursMap[key] || hours;
 
     return {
       ...bkg,
-      eventStatus: computedEventStatus,
+      eventStatus: bkg.eventName ? computedEventStatus : 'Active',
       calculatedHours: hours,
       totalHours: hours,
       personTotalHours: personTotal,
@@ -116,7 +114,8 @@ export async function fetchAvailableGigProfiles() {
       phone: gigProfiles.phone,
     })
     .from(gigProfiles)
-    .where(isNull(gigProfiles.deletedAt));
+    .where(isNull(gigProfiles.deletedAt))
+    .orderBy(gigProfiles.name);
 
   return profiles.map((p) => ({
     id: p.id,
@@ -192,3 +191,123 @@ export async function createNewGigProfile({ name, email, phone }, creatorUserId 
     gigPhone: newProfile.phone,
   };
 }
+
+export async function updateGigProfile(gigId, { name, email, phone }, userId = null) {
+  const [existing] = await db
+    .select()
+    .from(gigProfiles)
+    .where(and(eq(gigProfiles.id, gigId), isNull(gigProfiles.deletedAt)));
+
+  if (!existing) {
+    throw new Error('GIG_NOT_FOUND');
+  }
+
+  const cleanName = name !== undefined ? name.trim() : existing.name;
+  const cleanEmail = email !== undefined ? (email ? email.trim() : null) : existing.email;
+  const cleanPhone = phone !== undefined ? (phone ? phone.trim() : null) : existing.phone;
+
+  if (cleanEmail && cleanEmail !== existing.email) {
+    const [dupEmail] = await db
+      .select({ id: gigProfiles.id })
+      .from(gigProfiles)
+      .where(and(eq(gigProfiles.email, cleanEmail), isNull(gigProfiles.deletedAt)));
+
+    if (dupEmail) {
+      throw new Error('DUPLICATE_EMAIL');
+    }
+  }
+
+  if (cleanPhone && cleanPhone !== existing.phone) {
+    const [dupPhone] = await db
+      .select({ id: gigProfiles.id })
+      .from(gigProfiles)
+      .where(and(eq(gigProfiles.phone, cleanPhone), isNull(gigProfiles.deletedAt)));
+
+    if (dupPhone) {
+      throw new Error('DUPLICATE_PHONE');
+    }
+  }
+
+  const [updated] = await db
+    .update(gigProfiles)
+    .set({
+      name: cleanName,
+      email: cleanEmail,
+      phone: cleanPhone,
+      updatedAt: new Date(),
+    })
+    .where(eq(gigProfiles.id, gigId))
+    .returning();
+
+  if (userId) {
+    await createAuditLog({
+      userId,
+      action: 'update',
+      entityType: 'GigProfile',
+      entityId: gigId,
+      oldValue: existing,
+      newValue: updated,
+    });
+  }
+
+  return updated;
+}
+
+export async function deleteGigProfile(gigId, userId = null) {
+  const [existing] = await db
+    .select()
+    .from(gigProfiles)
+    .where(and(eq(gigProfiles.id, gigId), isNull(gigProfiles.deletedAt)));
+
+  if (!existing) {
+    throw new Error('GIG_NOT_FOUND');
+  }
+
+  const now = new Date();
+  await db
+    .update(gigProfiles)
+    .set({
+      deletedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(gigProfiles.id, gigId));
+
+  if (userId) {
+    await createAuditLog({
+      userId,
+      action: 'delete',
+      entityType: 'GigProfile',
+      entityId: gigId,
+      oldValue: existing,
+      newValue: { deletedAt: now },
+    });
+  }
+
+  return { success: true, message: 'Gig profile deleted successfully' };
+}
+
+export async function deleteGigAssignmentByAdmin(assignmentId, userId = null) {
+  const [existingAssgn] = await db
+    .select()
+    .from(eventGigAssignments)
+    .where(eq(eventGigAssignments.id, assignmentId));
+
+  if (!existingAssgn) {
+    throw new Error('ASSIGNMENT_NOT_FOUND');
+  }
+
+  await db.delete(eventGigAssignments).where(eq(eventGigAssignments.id, assignmentId));
+
+  if (userId) {
+    await createAuditLog({
+      userId,
+      action: 'delete',
+      entityType: 'EventGigAssignment',
+      entityId: assignmentId,
+      oldValue: existingAssgn,
+    });
+  }
+
+  return { success: true, message: 'Assignment removed successfully' };
+}
+
