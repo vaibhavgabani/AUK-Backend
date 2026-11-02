@@ -73,19 +73,54 @@ export async function fetchAllGigBookings({ status, from, to, managerId, place }
     .where(and(...conditions))
     .orderBy(gigProfiles.name);
 
-  // Calculate total working hours for each staff member across all events
+  // Calculate total working hours for each staff member across all active events
   const personHoursMap = {};
   rawBookings.forEach((bkg) => {
-    const hrs = calculateHours(bkg.startDatetime, bkg.endDatetime);
-    const key = bkg.gigId || bkg.gigName;
-    personHoursMap[key] = Math.round(((personHoursMap[key] || 0) + hrs) * 100) / 100;
+    // Strictly only accumulate hours if the assignment belongs to an active, non-deleted event
+    if (bkg.assignmentId && bkg.eventId) {
+      const hrs = calculateHours(bkg.startDatetime, bkg.endDatetime);
+      const key = bkg.gigId || bkg.gigName;
+      personHoursMap[key] = Math.round(((personHoursMap[key] || 0) + hrs) * 100) / 100;
+    }
   });
 
-  const processedBookings = rawBookings.map((bkg) => {
+  // Track gigs that have at least one active booking
+  const gigHasActiveBooking = new Set();
+  rawBookings.forEach((bkg) => {
+    if (bkg.assignmentId && bkg.eventId) {
+      gigHasActiveBooking.add(bkg.gigId);
+    }
+  });
+
+  const seenGigsWithoutBooking = new Set();
+  const validBookings = [];
+
+  rawBookings.forEach((bkg) => {
+    if (bkg.assignmentId && !bkg.eventId) {
+      // Event is soft-deleted: ignore phantom assignment.
+      // If worker has no other active bookings, retain profile once as unassigned.
+      if (!gigHasActiveBooking.has(bkg.gigId) && !seenGigsWithoutBooking.has(bkg.gigId)) {
+        seenGigsWithoutBooking.add(bkg.gigId);
+        validBookings.push({
+          ...bkg,
+          assignmentId: null,
+          startDatetime: null,
+          endDatetime: null,
+          actualStartDatetime: null,
+          actualEndDatetime: null,
+          status: null,
+        });
+      }
+      return;
+    }
+    validBookings.push(bkg);
+  });
+
+  const processedBookings = validBookings.map((bkg) => {
     const computedEventStatus = bkg.eventStartDatetime ? getEventStatus(bkg.eventStartDatetime, bkg.eventEndDatetime) : 'active';
-    const hours = calculateHours(bkg.startDatetime, bkg.endDatetime);
+    const hours = (bkg.assignmentId && bkg.eventId) ? calculateHours(bkg.startDatetime, bkg.endDatetime) : 0;
     const key = bkg.gigId || bkg.gigName;
-    const personTotal = personHoursMap[key] || hours;
+    const personTotal = personHoursMap[key] || 0;
 
     return {
       ...bkg,

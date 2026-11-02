@@ -89,6 +89,7 @@ export async function fetchEventDetailsById(userId, eventId) {
       status: eventGigAssignments.status,
     })
     .from(eventGigAssignments)
+    .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
     .innerJoin(gigProfiles, eq(eventGigAssignments.gigId, gigProfiles.id))
     .where(and(eq(eventGigAssignments.eventId, eventId), isNull(gigProfiles.deletedAt)));
 
@@ -172,34 +173,41 @@ export async function softDeleteEvent(userId, eventId) {
     throw new Error('MANAGER_NOT_FOUND');
   }
 
-  const [existingEvt] = await db
-    .select()
-    .from(events)
-    .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+  return await db.transaction(async (tx) => {
+    const [existingEvt] = await tx
+      .select()
+      .from(events)
+      .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
 
-  if (!existingEvt) {
-    throw new Error('EVENT_NOT_FOUND');
-  }
+    if (!existingEvt) {
+      throw new Error('EVENT_NOT_FOUND');
+    }
 
-  const now = new Date();
+    const now = new Date();
 
-  await db
-    .update(events)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(eq(events.id, eventId));
+    await tx
+      .update(events)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(events.id, eventId));
 
-  await createAuditLog({
-    userId,
-    action: 'delete',
-    entityType: 'Event',
-    entityId,
-    oldValue: {
-      id: existingEvt.id,
-      name: existingEvt.name,
-      managerId: existingEvt.managerId,
-    },
-    newValue: { deletedAt: now },
+    await tx
+      .delete(eventGigAssignments)
+      .where(eq(eventGigAssignments.eventId, eventId));
+
+    await createAuditLog({
+      userId,
+      action: 'delete',
+      entityType: 'Event',
+      entityId,
+      oldValue: {
+        id: existingEvt.id,
+        name: existingEvt.name,
+        managerId: existingEvt.managerId,
+      },
+      newValue: { deletedAt: now },
+      client: tx,
+    });
+
+    return { message: 'Event deleted successfully' };
   });
-
-  return { message: 'Event deleted successfully' };
 }

@@ -4,7 +4,7 @@ import { request } from './helpers/api.js';
 import { loginAsAdmin, loginAsManager } from './helpers/auth.js';
 import { getUniqueEmail, trackCreatedEvent, trackCreatedUser } from './helpers/testData.js';
 import { db } from '../db/index.js';
-import { gigProfiles } from '../db/schema.js';
+import { gigProfiles, eventGigAssignments } from '../db/schema.js';
 import { eq, isNull, and } from 'drizzle-orm';
 
 describe('Event Gig Assignment APIs (/api/events/:id/gigs)', () => {
@@ -134,5 +134,75 @@ describe('Event Gig Assignment APIs (/api/events/:id/gigs)', () => {
 
     assert.equal(res.status, 200);
     assert.equal(res.data.message, 'Gig assignment removed successfully');
+  });
+
+  test('Event Deletion — Purges worker assignments and immediately decreases worker accumulated hours', async () => {
+    const adminCookies = await loginAsAdmin();
+
+    // 1. Create a worker profile with a unique email
+    const gigEmail = getUniqueEmail('asgn_phantom_worker');
+    const [testWorker] = await db
+      .insert(gigProfiles)
+      .values({
+        name: 'Assignment Phantom Worker',
+        email: gigEmail,
+        phone: '07555444333',
+        payRate: '18.00',
+      })
+      .returning();
+
+    // 2. Create an event of 6 hours duration
+    const start = new Date(Date.now() + 86400000).toISOString();
+    const end = new Date(Date.now() + 86400000 + 6 * 3600000).toISOString(); // 6 hours
+
+    const evtRes = await request('/events', {
+      method: 'POST',
+      cookies: createdManagerCookies,
+      body: {
+        name: 'TEST_Event_Assignment_Purge_Check',
+        place: 'Sheffield Arena',
+        startDatetime: start,
+        endDatetime: end,
+      },
+    });
+    assert.equal(evtRes.status, 201);
+    const purgeEventId = evtRes.data.data.id;
+    trackCreatedEvent(purgeEventId);
+
+    // 3. Assign worker to this event
+    const assignRes = await request(`/events/${purgeEventId}/gigs`, {
+      method: 'POST',
+      cookies: createdManagerCookies,
+      body: { gigId: testWorker.id },
+    });
+    assert.equal(assignRes.status, 201);
+
+    // 4. Verify worker's accumulated hours include the 6 hours
+    const gigListBefore = await request('/gigs', { cookies: adminCookies });
+    assert.equal(gigListBefore.status, 200);
+    const workerBefore = gigListBefore.data.data.find((g) => g.gigId === testWorker.id);
+    assert.ok(workerBefore, 'Worker must be in gigs list');
+    assert.equal(workerBefore.personTotalHours, 6);
+
+    // 5. Delete the event
+    const delRes = await request(`/events/${purgeEventId}`, {
+      method: 'DELETE',
+      cookies: createdManagerCookies,
+    });
+    assert.equal(delRes.status, 200);
+
+    // 6. Verify corresponding assignments are purged from event_gig_assignments in database
+    const assignmentsRemaining = await db
+      .select()
+      .from(eventGigAssignments)
+      .where(eq(eventGigAssignments.eventId, purgeEventId));
+    assert.equal(assignmentsRemaining.length, 0, 'Assignments must be purged from database on event deletion');
+
+    // 7. Verify worker accumulated hours immediately decrease by 6 hours (now 0)
+    const gigListAfter = await request('/gigs', { cookies: adminCookies });
+    assert.equal(gigListAfter.status, 200);
+    const workerAfter = gigListAfter.data.data.find((g) => g.gigId === testWorker.id);
+    assert.ok(workerAfter, 'Worker profile must remain available');
+    assert.equal(workerAfter.personTotalHours, 0, 'Worker hours must immediately decrease after event deletion');
   });
 });

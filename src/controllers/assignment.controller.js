@@ -44,6 +44,7 @@ export async function getEventGigs(req, res) {
         createdAt: eventGigAssignments.createdAt,
       })
       .from(eventGigAssignments)
+      .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
       .innerJoin(gigProfiles, eq(eventGigAssignments.gigId, gigProfiles.id))
       .where(and(eq(eventGigAssignments.eventId, eventId), isNull(gigProfiles.deletedAt)));
 
@@ -189,8 +190,15 @@ export async function updateGigAssignment(req, res) {
 
     // Verify assignment belongs to this event
     const [existingAssgn] = await db
-      .select()
+      .select({
+        id: eventGigAssignments.id,
+        eventId: eventGigAssignments.eventId,
+        startDatetime: eventGigAssignments.startDatetime,
+        endDatetime: eventGigAssignments.endDatetime,
+        status: eventGigAssignments.status,
+      })
       .from(eventGigAssignments)
+      .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
       .where(and(eq(eventGigAssignments.id, assignmentId), eq(eventGigAssignments.eventId, eventId)));
 
     if (!existingAssgn) {
@@ -278,8 +286,13 @@ export async function deleteGigAssignment(req, res) {
     }
 
     const [existingAssgn] = await db
-      .select()
+      .select({
+        id: eventGigAssignments.id,
+        eventId: eventGigAssignments.eventId,
+        gigId: eventGigAssignments.gigId,
+      })
       .from(eventGigAssignments)
+      .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
       .where(and(eq(eventGigAssignments.id, assignmentId), eq(eventGigAssignments.eventId, eventId)));
 
     if (!existingAssgn) {

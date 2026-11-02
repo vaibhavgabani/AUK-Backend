@@ -75,6 +75,7 @@ export async function fetchEventsForAdmin({ status, from, to, managerId, place }
           endDatetime: eventGigAssignments.endDatetime,
         })
         .from(eventGigAssignments)
+        .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
         .innerJoin(gigProfiles, eq(eventGigAssignments.gigId, gigProfiles.id))
         .where(and(eq(eventGigAssignments.eventId, evt.id), isNull(gigProfiles.deletedAt)));
 
@@ -241,6 +242,7 @@ export async function fetchEventDetailsById(user, eventId) {
       status: eventGigAssignments.status,
     })
     .from(eventGigAssignments)
+    .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
     .innerJoin(gigProfiles, eq(eventGigAssignments.gigId, gigProfiles.id))
     .where(and(eq(eventGigAssignments.eventId, eventId), isNull(gigProfiles.deletedAt)));
 
@@ -336,49 +338,56 @@ export async function softDeleteEvent(user, eventId) {
   const userId = typeof user === 'object' ? user.id : user;
   const userRole = typeof user === 'object' ? user.role : 'manager';
 
-  let existingEvt = null;
+  return await db.transaction(async (tx) => {
+    let existingEvt = null;
 
-  if (userRole === 'admin') {
-    const [evt] = await db
-      .select()
-      .from(events)
-      .where(and(eq(events.id, eventId), isNull(events.deletedAt)));
-    existingEvt = evt;
-  } else {
-    const managerId = await getManagerProfileIdByUserId(userId);
-    if (!managerId) {
-      throw new Error('MANAGER_NOT_FOUND');
+    if (userRole === 'admin') {
+      const [evt] = await tx
+        .select()
+        .from(events)
+        .where(and(eq(events.id, eventId), isNull(events.deletedAt)));
+      existingEvt = evt;
+    } else {
+      const managerId = await getManagerProfileIdByUserId(userId);
+      if (!managerId) {
+        throw new Error('MANAGER_NOT_FOUND');
+      }
+      const [evt] = await tx
+        .select()
+        .from(events)
+        .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+      existingEvt = evt;
     }
-    const [evt] = await db
-      .select()
-      .from(events)
-      .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
-    existingEvt = evt;
-  }
 
-  if (!existingEvt) {
-    throw new Error('EVENT_NOT_FOUND');
-  }
+    if (!existingEvt) {
+      throw new Error('EVENT_NOT_FOUND');
+    }
 
-  const now = new Date();
+    const now = new Date();
 
-  await db
-    .update(events)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(eq(events.id, eventId));
+    await tx
+      .update(events)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(events.id, eventId));
 
-  await createAuditLog({
-    userId,
-    action: 'delete',
-    entityType: 'Event',
-    entityId: eventId,
-    oldValue: {
-      id: existingEvt.id,
-      name: existingEvt.name,
-      managerId: existingEvt.managerId,
-    },
-    newValue: { deletedAt: now },
+    await tx
+      .delete(eventGigAssignments)
+      .where(eq(eventGigAssignments.eventId, eventId));
+
+    await createAuditLog({
+      userId,
+      action: 'delete',
+      entityType: 'Event',
+      entityId: eventId,
+      oldValue: {
+        id: existingEvt.id,
+        name: existingEvt.name,
+        managerId: existingEvt.managerId,
+      },
+      newValue: { deletedAt: now },
+      client: tx,
+    });
+
+    return { message: 'Event deleted successfully' };
   });
-
-  return { message: 'Event deleted successfully' };
 }

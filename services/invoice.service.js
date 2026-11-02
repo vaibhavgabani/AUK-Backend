@@ -63,6 +63,7 @@ export async function generateInvoiceData(user, eventId) {
       status: eventGigAssignments.status,
     })
     .from(eventGigAssignments)
+    .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
     .innerJoin(gigProfiles, eq(eventGigAssignments.gigId, gigProfiles.id))
     .where(and(eq(eventGigAssignments.eventId, eventId), isNull(gigProfiles.deletedAt)));
 

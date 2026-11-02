@@ -119,6 +119,7 @@ export async function getEventById(req, res) {
         status: eventGigAssignments.status,
       })
       .from(eventGigAssignments)
+      .innerJoin(events, and(eq(eventGigAssignments.eventId, events.id), isNull(events.deletedAt)))
       .innerJoin(gigProfiles, eq(eventGigAssignments.gigId, gigProfiles.id))
       .where(and(eq(eventGigAssignments.eventId, eventId), isNull(gigProfiles.deletedAt)));
 
@@ -236,37 +237,47 @@ export async function deleteEvent(req, res) {
       return sendError(res, 'Manager profile not found', 403);
     }
 
-    const [existingEvt] = await db
-      .select()
-      .from(events)
-      .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
+    await db.transaction(async (tx) => {
+      const [existingEvt] = await tx
+        .select()
+        .from(events)
+        .where(and(eq(events.id, eventId), eq(events.managerId, managerId), isNull(events.deletedAt)));
 
-    if (!existingEvt) {
-      return sendError(res, 'Event not found', 404);
-    }
+      if (!existingEvt) {
+        throw new Error('EVENT_NOT_FOUND');
+      }
 
-    const now = new Date();
+      const now = new Date();
 
-    await db
-      .update(events)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(eq(events.id, eventId));
+      await tx
+        .update(events)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(eq(events.id, eventId));
 
-    await createAuditLog({
-      userId: req.user.id,
-      action: 'delete',
-      entityType: 'Event',
-      entityId: eventId,
-      oldValue: {
-        id: existingEvt.id,
-        name: existingEvt.name,
-        managerId: existingEvt.managerId,
-      },
-      newValue: { deletedAt: now },
+      await tx
+        .delete(eventGigAssignments)
+        .where(eq(eventGigAssignments.eventId, eventId));
+
+      await createAuditLog({
+        userId: req.user.id,
+        action: 'delete',
+        entityType: 'Event',
+        entityId: eventId,
+        oldValue: {
+          id: existingEvt.id,
+          name: existingEvt.name,
+          managerId: existingEvt.managerId,
+        },
+        newValue: { deletedAt: now },
+        client: tx,
+      });
     });
 
     return sendSuccess(res, { message: 'Event deleted successfully' });
   } catch (err) {
+    if (err.message === 'EVENT_NOT_FOUND') {
+      return sendError(res, 'Event not found', 404);
+    }
     console.error('Error deleting event:', err.message);
     return sendError(res, 'Failed to delete event', 500);
   }
